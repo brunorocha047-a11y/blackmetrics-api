@@ -15,4 +15,5 @@ pymc-marketing==0.5.0
 arviz==0.17.0
 
 # Otimização
-scipy==1.13.0
+# Fixamos o scipy em 1.12.0 para evitar o ImportError 'gaussian'
+scipy==1.12.0
