@@ -6,7 +6,7 @@ uvicorn
 
 # Manipulação de Dados
 pandas
-dscikit-learn
+scikit-learn
 
 # O "Cérebro" Estatístico (Bayesiano)
 pymc==5.10.3
