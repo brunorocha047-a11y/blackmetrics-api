@@ -9,7 +9,8 @@ pandas
 scikit-learn
 
 # O "Cérebro" Estatístico (Bayesiano)
-pymc==5.10.3
+# Nós só precisamos especificar o pymc-marketing; 
+# ele automaticamente instalará a versão correta do pymc.
 pymc-marketing==0.5.0
 arviz==0.17.0
 
