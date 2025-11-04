@@ -115,7 +115,7 @@ class BlackMetricsModel:
             
             invest_transformed = []
             for i, channel in enumerate(self.channels_invest_active):
-                channel_data = pm.Data(f"{channel}_data", X_data[channel].values)
+                channel_data = pm.Data(f"{channel}_data", X_data[channel].values, mutable=False)
                 
                 # Usar implementação manual por enquanto
                 if channel in ['tv_spend', 'ooh_spend']:
@@ -124,7 +124,9 @@ class BlackMetricsModel:
                     adstock = manual_geometric_adstock(channel_data, alpha=alpha_fast, l_max=4)
                 
                 saturation = manual_logistic_saturation(adstock, lam=slope_invest[i], beta=0.5)
-                invest_transformed.append(saturation * beta_invest[i])
+                # Garantir que a contribuição seja 1D
+                contribution = pm.math.flatten(saturation * beta_invest[i])
+                invest_transformed.append(contribution)
 
             # --- GRUPO 2: Canais Orgânicos ---
             alpha_organic = pm.Beta("alpha_organic", alpha=3, beta=3, dims="channel_organic")
@@ -132,25 +134,36 @@ class BlackMetricsModel:
             
             organic_transformed = []
             for i, channel in enumerate(self.channels_organic_active):
-                channel_data = pm.Data(f"{channel}_data", X_data[channel].values)
+                channel_data = pm.Data(f"{channel}_data", X_data[channel].values, mutable=False)
                 adstock = manual_geometric_adstock(channel_data, alpha=alpha_organic[i], l_max=4)
-                organic_transformed.append(adstock * beta_organic[i])
+                # Garantir que a contribuição seja 1D
+                contribution = pm.math.flatten(adstock * beta_organic[i])
+                organic_transformed.append(contribution)
 
             # --- GRUPO 3: Contexto ---
             beta_context = pm.Normal("beta_context", mu=0, sigma=2, dims="channel_context")
-            context_data = pm.Data("context_data", X_data[self.channels_context_active].values)
-            context_contribution = pm.math.dot(context_data, beta_context)
+            context_data = pm.Data("context_data", X_data[self.channels_context_active].values, mutable=False)
+            # Garantir que a contribuição seja 1D
+            context_contribution = pm.math.flatten(pm.math.dot(context_data, beta_context))
 
             # --- Modelo Final ---
             contributions = []
             if invest_transformed:
-                contributions.append(pm.math.sum(invest_transformed, axis=0))
+                # Somar todas as contribuições de investimento (já são 1D)
+                invest_total = pm.math.sum(pm.math.stack(invest_transformed), axis=0)
+                contributions.append(invest_total)
             if organic_transformed:
-                contributions.append(pm.math.sum(organic_transformed, axis=0))
+                # Somar todas as contribuições orgânicas (já são 1D)
+                organic_total = pm.math.sum(pm.math.stack(organic_transformed), axis=0)
+                contributions.append(organic_total)
             if self.channels_context_active:
                 contributions.append(context_contribution)
 
-            mu = pm.Deterministic("mu", intercept + pm.math.sum(contributions, axis=0))
+            # Somar todas as contribuições
+            if len(contributions) > 1:
+                mu = pm.Deterministic("mu", intercept + pm.math.sum(pm.math.stack(contributions), axis=0))
+            else:
+                mu = pm.Deterministic("mu", intercept + contributions[0])
             pm.Normal("obs", mu=mu, sigma=sigma, observed=y_data.values)
             print("Modelo construído com sucesso (V15 - com implementação robusta).")
 
