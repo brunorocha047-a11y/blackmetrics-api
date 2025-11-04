@@ -1,16 +1,17 @@
-# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V7 - CORREÇÃO FINAL DO AMIGO) ---
+# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V9 - CORREÇÃO DEFINITIVA) ---
 #
-# V7 (Correções):
-# 1. Mantida a importação do V6: 'import pytensor.tensor as pt'
-# 2. Corrigida a chamada de 'pm.MutableData' para 'pt.MutableData'
+# V9 (Correções):
+# 1. Usando a lógica do "Amigo V6" (pmm.mmm.logistic_saturation, etc.)
+# 2. Aplicada a correção do "V8": pm.Data() é a função correta, mas
+#    REMOVEMOS o argumento 'dims="obs_id"' para evitar o erro final de sintaxe.
 
 import pymc as pm
-import pytensor.tensor as pt # <-- CORREÇÃO V6: IMPORTAÇÃO NECESSÁRIA
-import pymc_marketing as pmk
+import pymc_marketing as pmm
 import pandas as pd
 import numpy as np
 import arviz as az
 from sklearn.preprocessing import MaxAbsScaler
+# Não precisamos do 'import pytensor.tensor as pt', ele é desnecessário
 
 # --- Definição dos Nossos 3 Grupos de Variáveis ---
 CHANNELS_INVESTMENT = [
@@ -112,15 +113,15 @@ class BlackMetricsModel:
             
             invest_transformed = []
             for channel in self.channels_invest_active:
-                # CORREÇÃO V7: Usar pt.MutableData
-                channel_data = pt.MutableData(f"{channel}_data", X_data[channel].values, dims="obs_id")
+                # CORREÇÃO V9: Usar pm.Data() e remover o 'dims'
+                channel_data = pm.Data(f"{channel}_data", X_data[channel].values)
                 
                 if channel in ['tv_spend', 'ooh_spend']:
-                    adstock = pmk.mmm.delayed_adstock(channel_data, alpha=alpha_slow, theta=theta_slow, l_max=8)
+                    adstock = pmm.mmm.delayed_adstock(channel_data, alpha=alpha_slow, theta=theta_slow, l_max=8)
                 else:
-                    adstock = pmk.mmm.geometric_adstock(channel_data, alpha=alpha_fast, l_max=4)
+                    adstock = pmm.mmm.geometric_adstock(channel_data, alpha=alpha_fast, l_max=4)
                 
-                saturation = pmk.mmm.logistic_saturation(
+                saturation = pmm.mmm.logistic_saturation(
                     adstock, 
                     lam=slope_invest[self.channels_invest_active.index(channel)], 
                     beta=0.5
@@ -133,10 +134,10 @@ class BlackMetricsModel:
             
             organic_transformed = []
             for i, channel in enumerate(self.channels_organic_active):
-                # CORREÇÃO V7: Usar pt.MutableData
-                channel_data = pt.MutableData(f"{channel}_data", X_data[channel].values, dims="obs_id")
+                # CORREÇÃO V9: Usar pm.Data() e remover o 'dims'
+                channel_data = pm.Data(f"{channel}_data", X_data[channel].values)
                 
-                adstock = pmk.mmm.geometric_adstock(
+                adstock = pmm.mmm.geometric_adstock(
                     channel_data, 
                     alpha=alpha_organic[i], 
                     l_max=4
@@ -145,8 +146,8 @@ class BlackMetricsModel:
 
             # --- GRUPO 3: Contexto (Regressores Simples) ---
             beta_context = pm.Normal("beta_context", mu=0, sigma=2, dims="channel_context")
-            # CORREÇÃO V7: Usar pt.MutableData
-            context_data = pt.MutableData("context_data", X_data[self.channels_context_active].values, dims=("obs_id", "channel_context"))
+            # CORREÇÃO V9: Usar pm.Data() e remover o 'dims'
+            context_data = pm.Data("context_data", X_data[self.channels_context_active].values)
             context_contribution = pm.math.dot(context_data, beta_context)
 
             # --- Modelo Final (μ) ---
@@ -166,7 +167,7 @@ class BlackMetricsModel:
             # --- Likelihood (Observador) ---
             pm.Normal("obs", mu=mu, sigma=sigma, observed=y_data.values)
             
-            print("Arquitetura do Modelo PyMC (V7 Corrigida) construída com sucesso.")
+            print("Arquitetura do Modelo PyMC (V9 Definitiva) construída com sucesso.")
 
     def fit(self, df_raw: pd.DataFrame, samples=2000, tune=1000, chains=4):
         """Treina o modelo MCMC."""
@@ -243,12 +244,12 @@ class BlackMetricsModel:
         
         def budget_response_function(budget, slope, k):
             # Usando a função de saturação logística do pymc-marketing
-            return pmk.mmm.logistic_saturation(budget, lam=slope, beta=k).eval()
+            return pmm.mmm.logistic_saturation(budget, lam=slope, beta=k).eval()
 
         try:
             # Nota: optimize_budget pode não estar disponível em todas as versões
             # Se não funcionar, será necessário implementar otimização customizada
-            optimal_allocation = pmk.budget_optimizer.optimize_budget_allocation(
+            optimal_allocation = pmm.budget_optimizer.optimize_budget_allocation(
                 total_budget=total_budget,
                 channels=self.channels_invest_active,
                 parameters=param_map,
