@@ -3,7 +3,8 @@
 # Framework da API
 fastapi
 uvicorn
-python-multipart # <-- A CORREÇÃO ESTÁ AQUI
+python-multipart
+gunicorn # <-- ADICIONE O NOVO GERENTE AQUI
 
 # Manipulação de Dados
 pandas
