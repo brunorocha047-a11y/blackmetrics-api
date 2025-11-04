@@ -1,13 +1,15 @@
-# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V3 - CORREÇÃO DE SINTAXE) ---
+# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V4 - CORREÇÃO DE IMPORTAÇÃO) ---
 #
-# V3 (Correções):
-# 1. Corrigido pm.MutableData para pm.pytensor.MutableData
+# V4 (Correções):
+# 1. Adicionado 'import pytensor'
+# 2. Corrigido pm.pytensor.MutableData para pytensor.MutableData
 
 import pymc as pm
 import pymc_marketing as pmk
 import pandas as pd
 import numpy as np
 import arviz as az
+import pytensor # <-- AQUI ESTÁ A CORREÇÃO DE IMPORTAÇÃO
 from sklearn.preprocessing import MaxAbsScaler
 
 # --- Definição dos Nossos 3 Grupos de Variáveis ---
@@ -110,8 +112,8 @@ class BlackMetricsModel:
             
             invest_transformed = []
             for channel in self.channels_invest_active:
-                # CORREÇÃO V3: Usar pm.pytensor.MutableData
-                channel_data = pm.pytensor.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
+                # CORREÇÃO V4: Usar pytensor.MutableData
+                channel_data = pytensor.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
                 
                 if channel in ['tv_spend', 'ooh_spend']:
                     adstock = pmk.DelayedAdstock(channel_data, alpha=alpha_slow, theta=theta_slow, max_lag=8)
@@ -131,8 +133,8 @@ class BlackMetricsModel:
             
             organic_transformed = []
             for channel in self.channels_organic_active:
-                # CORREÇÃO V3: Usar pm.pytensor.MutableData
-                channel_data = pm.pytensor.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
+                # CORREÇÃO V4: Usar pytensor.MutableData
+                channel_data = pytensor.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
                 
                 adstock = pmk.GeometricAdstock(
                     channel_data, 
@@ -143,8 +145,8 @@ class BlackMetricsModel:
 
             # --- GRUPO 3: Contexto (Regressores Simples) ---
             beta_context = pm.Normal("beta_context", mu=0, sigma=2, dims="channel_context")
-            # CORREÇÃO V3: Usar pm.pytensor.MutableData
-            context_data = pm.pytensor.MutableData("context_data", X_data[self.channels_context_active], dims=("obs_id", "channel_context"))
+            # CORREÇÃO V4: Usar pytensor.MutableData
+            context_data = pytensor.MutableData("context_data", X_data[self.channels_context_active], dims=("obs_id", "channel_context"))
             context_contribution = pm.math.dot(context_data, beta_context)
 
             # --- Modelo Final (μ) ---
@@ -164,7 +166,7 @@ class BlackMetricsModel:
             # --- Likelihood (Observador) ---
             pm.Normal("obs", mu=mu, sigma=sigma, observed=y_data)
             
-            print("Arquitetura do Modelo PyMC (V3 Corrigida) construída com sucesso.")
+            print("Arquitetura do Modelo PyMC (V4 Corrigida) construída com sucesso.")
 
     def fit(self, df_raw: pd.DataFrame, samples=2000, tune=1000, chains=4):
         """Treina o modelo MCMC."""
