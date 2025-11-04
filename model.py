@@ -1,4 +1,9 @@
-# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V11 - COMPATÍVEL COM pymc-marketing==0.5.0) ---
+# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V14 - CORREÇÃO DE IMPORT) ---
+#
+# V14 (Correções):
+# 1. As importações do ...mmm foram corrigidas para ...mmm.adstock e ...mmm.saturation
+#    para serem compatíveis com as bibliotecas modernas (pymc-marketing > 0.5.0)
+#    que o seu requirements.txt (V13) instalou.
 
 import pymc as pm
 import pandas as pd
@@ -6,13 +11,11 @@ import numpy as np
 import arviz as az
 from sklearn.preprocessing import MaxAbsScaler
 
-# ✅ IMPORTS CORRETOS PARA v0.5.0
-from pymc_marketing.mmm import (
-    GeometricAdstock,
-    WeibullAdstock,
-    Hill,
-    optimize_budget
-)
+# Imports corretos para pymc-marketing MODERNO
+from pymc_marketing.mmm.adstock import GeometricAdstock, WeibullAdstock
+from pymc_marketing.mmm.saturation import Hill
+from pymc_marketing.mmm.budget_optimizer import optimize_budget
+
 
 # --- Definição dos Nossos 3 Grupos de Variáveis ---
 CHANNELS_INVESTMENT = ['meta_ads_spend', 'google_ads_spend', 'tv_spend', 'ooh_spend']
@@ -81,26 +84,36 @@ class BlackMetricsModel:
             beta_invest = pm.HalfNormal("beta_invest", sigma=2, dims="channel_invest")
             
             invest_transformed = []
-            for i, channel in enumerate(self.channels_invest_active):
+            for channel in self.channels_invest_active:
                 channel_data = pm.Data(f"{channel}_data", X_data[channel].values)
                 
                 if channel in ['tv_spend', 'ooh_spend']:
-                    adstock = WeibullAdstock(alpha=alpha_slow, lam=theta_slow, l_max=8)(channel_data)
+                    adstock = WeibullAdstock(name=f"{channel}_adstock", input_channel=channel_data, alpha=alpha_slow, lam=theta_slow, l_max=8)
                 else:
-                    adstock = GeometricAdstock(alpha=alpha_fast, l_max=4)(channel_data)
+                    adstock = GeometricAdstock(name=f"{channel}_adstock", input_channel=channel_data, alpha=alpha_fast, l_max=4)
                 
-                saturation = Hill(slope=slope_invest[i], k=0.5)(adstock)
-                invest_transformed.append(saturation * beta_invest[i])
+                saturation = Hill(
+                    name=f"{channel}_saturation",
+                    input_channel=adstock,
+                    slope=slope_invest.sel(channel_invest=channel), 
+                    k=0.5
+                )
+                invest_transformed.append(saturation * beta_invest.sel(channel_invest=channel))
 
             # --- GRUPO 2: Canais Orgânicos ---
             alpha_organic = pm.Beta("alpha_organic", alpha=3, beta=3, dims="channel_organic")
             beta_organic = pm.HalfNormal("beta_organic", sigma=2, dims="channel_organic")
             
             organic_transformed = []
-            for i, channel in enumerate(self.channels_organic_active):
+            for channel in self.channels_organic_active:
                 channel_data = pm.Data(f"{channel}_data", X_data[channel].values)
-                adstock = GeometricAdstock(alpha=alpha_organic[i], l_max=4)(channel_data)
-                organic_transformed.append(adstock * beta_organic[i])
+                adstock = GeometricAdstock(
+                    name=f"{channel}_adstock",
+                    input_channel=channel_data,
+                    alpha=alpha_organic.sel(channel_organic=channel), 
+                    l_max=4
+                )
+                organic_transformed.append(adstock * beta_organic.sel(channel_organic=channel))
 
             # --- GRUPO 3: Contexto ---
             beta_context = pm.Normal("beta_context", mu=0, sigma=2, dims="channel_context")
@@ -118,10 +131,10 @@ class BlackMetricsModel:
 
             mu = pm.Deterministic("mu", intercept + pm.math.sum(contributions, axis=0))
             pm.Normal("obs", mu=mu, sigma=sigma, observed=y_data.values)
-            print("Modelo construído com sucesso (V11 - compatível com pymc-marketing 0.5.0).")
+            print("Modelo construído com sucesso (V14 - compatível com pymc-marketing moderno).")
 
     def fit(self, df_raw: pd.DataFrame, samples=1000, tune=500, chains=2):
-        # Use amostras menores para teste rápido; aumente depois
+        # Usar amostras menores para teste rápido
         X_data, y_data = self._preprocess(df_raw)
         self.build_model(X_data, y_data)
         print("Iniciando amostragem MCMC...")
@@ -143,7 +156,8 @@ class BlackMetricsModel:
         for i, channel in enumerate(self.channels_invest_active):
             total_cost = self.X_data[channel].sum()
             beta_mean = summary.loc[f"beta_invest[{i}]"]['mean']
-            roi = beta_mean if total_cost > 0 else 0
+            contribution_scaled = beta_mean * self.X_data[channel].sum()
+            roi = contribution_scaled / total_cost if total_cost > 0 else 0
             roi_results[channel] = roi
 
         return {
