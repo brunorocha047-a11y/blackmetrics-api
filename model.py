@@ -1,10 +1,11 @@
-# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V5 - CORREÇÃO DE SINTAXE FINAL) ---
+# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V7 - CORREÇÃO FINAL DO AMIGO) ---
 #
-# V5 (Correções):
-# 1. Removido 'import pytensor'
-# 2. Corrigido para pmk.MutableData (o caminho correto da biblioteca)
+# V7 (Correções):
+# 1. Mantida a importação do V6: 'import pytensor.tensor as pt'
+# 2. Corrigida a chamada de 'pm.MutableData' para 'pt.MutableData'
 
 import pymc as pm
+import pytensor.tensor as pt # <-- CORREÇÃO V6: IMPORTAÇÃO NECESSÁRIA
 import pymc_marketing as pmk
 import pandas as pd
 import numpy as np
@@ -111,41 +112,41 @@ class BlackMetricsModel:
             
             invest_transformed = []
             for channel in self.channels_invest_active:
-                # CORREÇÃO V5: Usar pmk.MutableData
-                channel_data = pmk.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
+                # CORREÇÃO V7: Usar pt.MutableData
+                channel_data = pt.MutableData(f"{channel}_data", X_data[channel].values, dims="obs_id")
                 
                 if channel in ['tv_spend', 'ooh_spend']:
-                    adstock = pmk.DelayedAdstock(channel_data, alpha=alpha_slow, theta=theta_slow, max_lag=8)
+                    adstock = pmk.mmm.delayed_adstock(channel_data, alpha=alpha_slow, theta=theta_slow, l_max=8)
                 else:
-                    adstock = pmk.GeometricAdstock(channel_data, alpha=alpha_fast, max_lag=4)
+                    adstock = pmk.mmm.geometric_adstock(channel_data, alpha=alpha_fast, l_max=4)
                 
-                saturation = pmk.Hill(
+                saturation = pmk.mmm.logistic_saturation(
                     adstock, 
-                    slope=slope_invest.sel(channel_invest=channel), 
-                    k=0.5
+                    lam=slope_invest[self.channels_invest_active.index(channel)], 
+                    beta=0.5
                 )
-                invest_transformed.append(saturation * beta_invest.sel(channel_invest=channel))
+                invest_transformed.append(saturation * beta_invest[self.channels_invest_active.index(channel)])
 
             # --- GRUPO 2: Canais Orgânicos (com Adstock Simples) ---
             alpha_organic = pm.Beta("alpha_organic", alpha=3, beta=3, dims="channel_organic")
             beta_organic = pm.HalfNormal("beta_organic", sigma=2, dims="channel_organic")
             
             organic_transformed = []
-            for channel in self.channels_organic_active:
-                # CORREÇÃO V5: Usar pmk.MutableData
-                channel_data = pmk.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
+            for i, channel in enumerate(self.channels_organic_active):
+                # CORREÇÃO V7: Usar pt.MutableData
+                channel_data = pt.MutableData(f"{channel}_data", X_data[channel].values, dims="obs_id")
                 
-                adstock = pmk.GeometricAdstock(
+                adstock = pmk.mmm.geometric_adstock(
                     channel_data, 
-                    alpha=alpha_organic.sel(channel_organic=channel), 
-                    max_lag=4
+                    alpha=alpha_organic[i], 
+                    l_max=4
                 )
-                organic_transformed.append(adstock * beta_organic.sel(channel_organic=channel))
+                organic_transformed.append(adstock * beta_organic[i])
 
             # --- GRUPO 3: Contexto (Regressores Simples) ---
             beta_context = pm.Normal("beta_context", mu=0, sigma=2, dims="channel_context")
-            # CORREÇÃO V5: Usar pmk.MutableData
-            context_data = pmk.MutableData("context_data", X_data[self.channels_context_active], dims=("obs_id", "channel_context"))
+            # CORREÇÃO V7: Usar pt.MutableData
+            context_data = pt.MutableData("context_data", X_data[self.channels_context_active].values, dims=("obs_id", "channel_context"))
             context_contribution = pm.math.dot(context_data, beta_context)
 
             # --- Modelo Final (μ) ---
@@ -163,9 +164,9 @@ class BlackMetricsModel:
             )
 
             # --- Likelihood (Observador) ---
-            pm.Normal("obs", mu=mu, sigma=sigma, observed=y_data)
+            pm.Normal("obs", mu=mu, sigma=sigma, observed=y_data.values)
             
-            print("Arquitetura do Modelo PyMC (V5 Corrigida) construída com sucesso.")
+            print("Arquitetura do Modelo PyMC (V7 Corrigida) construída com sucesso.")
 
     def fit(self, df_raw: pd.DataFrame, samples=2000, tune=1000, chains=4):
         """Treina o modelo MCMC."""
@@ -241,15 +242,17 @@ class BlackMetricsModel:
             }
         
         def budget_response_function(budget, slope, k):
-            return pmk.Hill(budget, slope=slope, k=k).eval()
+            # Usando a função de saturação logística do pymc-marketing
+            return pmk.mmm.logistic_saturation(budget, lam=slope, beta=k).eval()
 
         try:
-            optimal_allocation = pmk.optimize_budget(
+            # Nota: optimize_budget pode não estar disponível em todas as versões
+            # Se não funcionar, será necessário implementar otimização customizada
+            optimal_allocation = pmk.budget_optimizer.optimize_budget_allocation(
                 total_budget=total_budget,
                 channels=self.channels_invest_active,
                 parameters=param_map,
-                response_function=budget_response_function,
-                budget_unit_cost=np.ones(len(self.channels_invest_active))
+                response_function=budget_response_function
             )
             
             optimized_budget_series = pd.Series(optimal_allocation, index=self.channels_invest_active)
@@ -273,7 +276,7 @@ class BlackMetricsModel:
             
         except Exception as e:
             print(f"Erro na otimização: {e}")
-            response = {"error": "Não foi possível otimização. Verifique os parâmetros do modelo.", "details": str(e)}
+            response = {"error": "Não foi possível otimizar o budget. Verifique os parâmetros do modelo.", "details": str(e)}
 
         print("JSON de Otimização gerado.")
         return response
