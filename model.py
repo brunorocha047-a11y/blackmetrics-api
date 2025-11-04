@@ -41,13 +41,39 @@ TARGET = 'vendas'
 
 # Implementações manuais caso necessário
 def manual_geometric_adstock(x, alpha, l_max=8):
-    """Adstock geométrico manual"""
+    """
+    Adstock geométrico usando matriz de convolução.
+    Mais estável e compatível com PyTensor.
+    """
     import pytensor.tensor as pt
-    convolve_func = pm.math.dot(
-        x,
-        pt.power(alpha, pt.arange(l_max, dtype="float64"))
+    
+    n = x.shape[0]
+    
+    # Criar matriz de adstock (lower triangular)
+    # Cada linha i tem: [1, alpha, alpha^2, ...] nos últimos i+1 elementos
+    lags = pt.minimum(pt.arange(n)[:, None], l_max)
+    adstock_matrix = pt.power(alpha, pt.arange(l_max)[None, :])
+    
+    # Aplicar apenas aos lags válidos
+    mask = pt.arange(l_max)[None, :] <= pt.arange(n)[:, None]
+    adstock_matrix = adstock_matrix * mask
+    
+    # Criar matriz triangular para convolução
+    row_indices = pt.arange(n)[:, None]
+    col_indices = pt.arange(n)[None, :]
+    lag_indices = row_indices - col_indices
+    
+    # Pesos: alpha^lag para lag >= 0, zero caso contrário
+    weights = pt.switch(
+        (lag_indices >= 0) & (lag_indices < l_max),
+        pt.power(alpha, lag_indices),
+        0.0
     )
-    return convolve_func
+    
+    # Aplicar transformação: y[t] = sum(x[t-i] * alpha^i) para i=0..l_max-1
+    result = pt.dot(weights, x)
+    
+    return result
 
 
 def manual_logistic_saturation(x, lam, beta):
