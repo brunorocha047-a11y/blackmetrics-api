@@ -1,10 +1,7 @@
-# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO CORRIGIDA) ---
-# Este arquivo contém a lógica do modelo Bayesiano (MMM)
-# Ele usa PyMC e PyMC-Marketing para replicar a lógica da Purple Metrics.
+# --- O "CÉREBRO" DO BLACKMETRICS (VERSÃO V3 - CORREÇÃO DE SINTAXE) ---
 #
-# V2 (Correções):
-# 1. Substituído pm.Data(mutable=True) por pm.MutableData() para compatibilidade com PyMC 5.x
-# 2. Corrigida a indexação de coordenadas (ex: de slope_invest[i] para slope_invest.sel(channel_invest=channel))
+# V3 (Correções):
+# 1. Corrigido pm.MutableData para pm.pytensor.MutableData
 
 import pymc as pm
 import pymc_marketing as pmk
@@ -113,15 +110,14 @@ class BlackMetricsModel:
             
             invest_transformed = []
             for channel in self.channels_invest_active:
-                # CORREÇÃO: Usar pm.MutableData em vez de pm.Data(..., mutable=True)
-                channel_data = pm.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
+                # CORREÇÃO V3: Usar pm.pytensor.MutableData
+                channel_data = pm.pytensor.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
                 
                 if channel in ['tv_spend', 'ooh_spend']:
                     adstock = pmk.DelayedAdstock(channel_data, alpha=alpha_slow, theta=theta_slow, max_lag=8)
                 else:
                     adstock = pmk.GeometricAdstock(channel_data, alpha=alpha_fast, max_lag=4)
                 
-                # CORREÇÃO: Usar .sel() para indexar pelas coordenadas de string
                 saturation = pmk.Hill(
                     adstock, 
                     slope=slope_invest.sel(channel_invest=channel), 
@@ -135,9 +131,9 @@ class BlackMetricsModel:
             
             organic_transformed = []
             for channel in self.channels_organic_active:
-                # CORREÇÃO: Usar pm.MutableData
-                channel_data = pm.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
-                # CORREÇÃO: Usar .sel()
+                # CORREÇÃO V3: Usar pm.pytensor.MutableData
+                channel_data = pm.pytensor.MutableData(f"{channel}_data", X_data[channel], dims="obs_id")
+                
                 adstock = pmk.GeometricAdstock(
                     channel_data, 
                     alpha=alpha_organic.sel(channel_organic=channel), 
@@ -147,8 +143,8 @@ class BlackMetricsModel:
 
             # --- GRUPO 3: Contexto (Regressores Simples) ---
             beta_context = pm.Normal("beta_context", mu=0, sigma=2, dims="channel_context")
-            # CORREÇÃO: Usar pm.MutableData
-            context_data = pm.MutableData("context_data", X_data[self.channels_context_active], dims=("obs_id", "channel_context"))
+            # CORREÇÃO V3: Usar pm.pytensor.MutableData
+            context_data = pm.pytensor.MutableData("context_data", X_data[self.channels_context_active], dims=("obs_id", "channel_context"))
             context_contribution = pm.math.dot(context_data, beta_context)
 
             # --- Modelo Final (μ) ---
@@ -168,7 +164,7 @@ class BlackMetricsModel:
             # --- Likelihood (Observador) ---
             pm.Normal("obs", mu=mu, sigma=sigma, observed=y_data)
             
-            print("Arquitetura do Modelo PyMC (V2 Corrigida) construída com sucesso.")
+            print("Arquitetura do Modelo PyMC (V3 Corrigida) construída com sucesso.")
 
     def fit(self, df_raw: pd.DataFrame, samples=2000, tune=1000, chains=4):
         """Treina o modelo MCMC."""
@@ -200,7 +196,6 @@ class BlackMetricsModel:
         roi_results = {}
         for channel in self.channels_invest_active:
             total_cost = self.X_data[channel].sum()
-            # CORREÇÃO: Indexar sumário pela string do canal
             beta_mean = summary.loc[f"beta_invest[{channel}]"]['mean']
             contribution = beta_mean * total_cost 
             roi = (contribution / total_cost) if total_cost > 0 else 0
@@ -239,7 +234,6 @@ class BlackMetricsModel:
         
         param_map = {}
         for channel in self.channels_invest_active:
-            # CORREÇÃO: Indexar sumário pela string do canal
             param_map[channel] = {
                 'slope': model_params.loc[f"slope_invest[{channel}]"]['mean'],
                 'k': 0.5 
